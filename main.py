@@ -5,6 +5,7 @@ script checks the picture against the contest limits and then copies
 it, untouched, into the directory the grader points us at.
 """
 
+import hashlib
 import os
 import struct
 import sys
@@ -52,12 +53,17 @@ def jpeg_dimensions(blob):
 
 
 def measure(blob):
-    """Recognise the picture format and return its (width, height)."""
+    """Recognise the picture format and return (format, width, height)."""
     if blob.startswith(PNG_MAGIC):
-        return png_dimensions(blob)
+        width, height = png_dimensions(blob)
+        return "PNG", width, height
     if blob.startswith(JPEG_MAGIC):
-        return jpeg_dimensions(blob)
-    fail("picture is neither PNG nor JPEG (bad magic bytes)")
+        width, height = jpeg_dimensions(blob)
+        return "JPEG", width, height
+    fail(
+        "picture is neither PNG nor JPEG "
+        f"(first bytes {blob[:4].hex() or 'none'}, expected PNG or JPEG magic)"
+    )
 
 
 def main():
@@ -65,16 +71,25 @@ def main():
     blob = (here / "entry.png").read_bytes()
 
     if len(blob) > MAX_BYTES:
-        fail("picture is larger than the allowed maximum size")
-    width, height = measure(blob)
+        fail(
+            f"picture is {len(blob)} bytes, over the {MAX_BYTES}-byte limit"
+        )
+    fmt, width, height = measure(blob)
     if not (1 <= width <= MAX_SIDE and 1 <= height <= MAX_SIDE):
-        fail("picture dimensions fall outside the allowed range")
+        fail(
+            f"picture dimensions are {width}x{height}, outside the "
+            f"allowed 1..{MAX_SIDE} range per side"
+        )
 
     out_dir = Path(os.environ.get("MAKEFUN_OUTPUT_DIR", "/output"))
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / "entry.png"
     target.write_bytes(blob)
-    print(f"Entry written to {target}: {len(blob)} bytes, {width}x{height}")
+    digest = hashlib.sha256(blob).hexdigest()
+    print(
+        f"Entry written to {target}: {fmt}, {len(blob)} bytes, "
+        f"{width}x{height}, sha256 {digest}"
+    )
 
 
 if __name__ == "__main__":
